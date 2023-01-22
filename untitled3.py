@@ -1,5 +1,12 @@
 # -*- coding: utf-8 -*-
 """
+Created on Sun Jan 22 19:11:11 2023
+
+@author: jseys
+"""
+
+# -*- coding: utf-8 -*-
+"""
 Created on Thu Jan 19 21:55:44 2023
 
 @author: jseys
@@ -20,7 +27,7 @@ from tensorflow.keras.models import Sequential
 
 WINDOW_SIZE = 50
 BATCH_SIZE = 100
-EPOCHS = 5
+EPOCHS = 100
 LSTM_SIZE = 100
 
 #resolution des plots
@@ -39,6 +46,19 @@ data = CSVdata[["Open","Close","Volume"]]
 close_serie = data["Close"]
 
 pre_norm_data=data.values
+# rajout direction
+
+
+pre_norm_data=np.c_[pre_norm_data,np.zeros(pre_norm_data.shape[0])]
+
+for i in range(1,(pre_norm_data.shape[0])):
+     if (pre_norm_data[i,1]-pre_norm_data[i,0])>0:
+         pre_norm_data[i-1,pre_norm_data.shape[1]-1]=1
+     elif (pre_norm_data[i,1]-pre_norm_data[i,0])<0:
+         pre_norm_data[i-1,pre_norm_data.shape[1]-1]=-1
+
+
+
 
 # plt.plot(close_serie.values[:],label="data")
 # plt.show()
@@ -53,7 +73,7 @@ min_max_scaler = MinMaxScaler()
 scaler = min_max_scaler.fit(pre_norm_data.reshape(-1, pre_norm_data.shape[1]))
 # mise à l'échelle des données d'apprentissage et de test
 
-norm_data = scaler.transform(data.values[:].reshape(-1, pre_norm_data.shape[1]))
+norm_data = scaler.transform(pre_norm_data[:].reshape(-1, pre_norm_data.shape[1]))
 # test_values = scaler.transform(close_serie.values[18000:].reshape(-1, 1))
 
 #print ('##### DATA NORMALISEES :\n',norm_data)
@@ -73,8 +93,8 @@ def create_window(dataset, start_index, end_index, history_size):
 
     for i in range(start_index, end_index):
         indices = range(i - history_size, i)
-        data.append(np.reshape(dataset[indices], (history_size, dataset.shape[1])))
-        labels.append(dataset[i,1])
+        data.append(np.reshape(np.delete(norm_data,3,1)[indices], (history_size, dataset.shape[1]-1)))
+        labels.append(dataset[i-1,dataset.shape[1]-1])
 
     return np.array(data), np.array(labels)
 
@@ -99,7 +119,7 @@ model = Sequential([
 
     layers.Dense(1) ])
 
-model.compile(loss='mse', optimizer='adam')
+model.compile(loss='mse', optimizer='adam',)
 
 print(model.summary())
 
@@ -128,7 +148,7 @@ def plot_history(history):
     plt.plot(np.arange(len(loss)) + 0.5, loss, "b.-", label="Training loss")
     plt.plot(np.arange(len(val_loss)) + 1, val_loss, "r.-", label="Validation loss")
     plt.gca().xaxis.set_major_locator(mpl.ticker.MaxNLocator(integer=True))
-    plt.axis([0, EPOCHS, 0, 0.000075])#max(max(loss),max(val_loss))])
+    plt.axis([0, EPOCHS, 0.24, 0.26])#max(max(loss),max(val_loss))])
     plt.legend(fontsize=14)
     plt.xlabel("Epochs")
     plt.ylabel("Loss")
@@ -143,81 +163,20 @@ plot_history(history)
 predictions = model.predict(np.array(X))
 #il faut déscaler la predition mais en utilisant que les parametre de scale de la colonne close, du coup on cre un nouveau scaler
 close_scaler=MinMaxScaler()
-close_scaler.min_,close_scaler.scale_=scaler.min_[1],scaler.scale_[1]
+close_scaler.min_,close_scaler.scale_=scaler.min_[3],scaler.scale_[3]
 
-pred_unorm=np.reshape(close_scaler.inverse_transform(predictions), -1)
+pred_unorm=np.sign(np.reshape(close_scaler.inverse_transform(predictions), -1))
+
+
+
 
 #pour faire a la main :
 #    pred_unorm=(predictions-scaler.min_[1])/scaler.scale_[1]
 
-plt.title("Prix de fermeture")
-plt.plot(close_serie.values[(0+WINDOW_SIZE):(50+WINDOW_SIZE)],label='Réél')
+plt.title("Direction")
+plt.plot(pre_norm_data[(WINDOW_SIZE-1):(50+WINDOW_SIZE-1)][3],label='Réél')
 plt.grid(True)
-plt.plot(pred_unorm[0:50],label='Prédiction')
+plt.plot(pred_unorm[0:50],label='Prédictions')
 plt.legend(loc='upper right')
 plt.show()
-
-
-#****** Ecarts
-print ("moyenne de écarts ouverture-fermeture :",np.mean(np.abs(data["Close"]-data["Open"])))
-print ("moyenne de écarts cloture prédiction-réel :",np.mean(np.abs(pred_unorm[:len(pred_unorm)-1]-np.array(close_serie)[WINDOW_SIZE:len(close_serie)-1])))
-
-plt.plot(pred_unorm[:len(pred_unorm)-1]-np.array(close_serie)[WINDOW_SIZE+1-1:len(close_serie)-1])
-plt.show()
-
-# calcul signal
-# -1 pour vente et 1 pour achat
-
-pred_variation=pred_unorm-np.array(close_serie)[WINDOW_SIZE-1:len(close_serie)-1]
-real_variation= np.array(close_serie)[WINDOW_SIZE:len(close_serie)]-np.array(close_serie)[WINDOW_SIZE-1:len(close_serie)-1]
-plt.title("Variation")
-plt.plot(real_variation[0:100],label='Réél')
-plt.grid(True)
-plt.plot(pred_variation[0:100],label='Prédiction')
-plt.legend(loc='upper right')
-plt.show()
-    
-
-    
-for i in range(0,(pred_variation.shape[0])):
-     if pred_variation[i]>0:
-         pred_variation[i]=1
-     elif pred_variation[i]<0:
-         pred_variation[i]=-1
-         
-for i in range(0,(real_variation.shape[0])):
-     if real_variation[i]>0:
-         real_variation[i]=1
-     elif real_variation[i]<0:
-         real_variation[i]=-1
-         
-ecart_variation=np.zeros(real_variation.shape)
-resultat=0
-
-for i in range(0,(ecart_variation.shape[0])):
-     if real_variation[i]==pred_variation[i]:
-         ecart_variation[i]=1
-         resultat+=1
-         
-resultat=resultat/ecart_variation.shape[0]*100
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
